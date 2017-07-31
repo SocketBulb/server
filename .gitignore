@@ -65,7 +65,7 @@ yarn.lock
 package-lock.json
 
 # dotenv environment variables file
-.env
+*.env
 
 
 # End of https://www.gitignore.io/api/node
