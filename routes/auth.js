@@ -1,5 +1,6 @@
 const models = require('../models');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 var router = require('express').Router();
 
 module.exports = (passport) => {
@@ -25,8 +26,7 @@ module.exports = (passport) => {
     req.checkBody('password').notEmpty();
     
     req.getValidationResult().then(result => {
-      var errors = result.array()
-      console.log(errors);
+      var errors = result.array();
       
       if (!result.isEmpty()) {
         return res.status(400).json({
@@ -34,24 +34,44 @@ module.exports = (passport) => {
         });
       }
       
-      // create user if all is aight
-      models.User.save({
-        email: req.body.email,
-        password: req.body.password
-      }, (modelErr, user) => {
+      // check that email does not exist
+      models.Email.where({ email: req.body.email }, (err, emails) => {
+        if (emails.length > 0) {
+          // CASE: email exists
+          return res.status(400).json({
+            error: { message: `Email already exists.` }
+          });
+        }
         
-        if (modelErr) return res.status(500).json({ error: modelErr });
-        
-        return req.login(user, loginErr => {
-          console.error(loginErr);
-          if (loginErr) return res.status(500).json({ error: loginErr });
+        // create user if all is aight
+        models.User.save({
+          password: bcrypt.hashSync(req.body.password, 8),
+          email: req.body.email,
+          emails : [{
+            email: req.body.email,
+            primary: true,
+            confirmToken: jwt.sign(req.body.email, process.env.SECRET)
+          }],
+          profile: {}
+        }, (modelErr, user) => {
+          console.log(modelErr);
+          // CASE: database read error
+          if (modelErr) return res.status(500).json({ error: modelErr });
           
-          return res.json({
-            user,
-            token: 'thisShouldBeAJWT'
+          return req.login(user, loginErr => {
+            // CASE: passport login error
+            if (loginErr) return res.status(500).json({ error: loginErr });
+            
+            const payload = {
+              id : user.id
+            };
+            const token = jwt.sign(payload, process.env.SECRET);
+            return res.json({ user, token });
           });
         });
-      });
+        
+        
+      })
       
     });
 
@@ -76,6 +96,7 @@ module.exports = (passport) => {
     req.getValidationResult().then(result => {
       var errors = result.array()
       
+      // CASE: email/password validation errors
       if (!result.isEmpty()) {
         return res.status(400).json({
           error: errors.useFirstErrorOnly().mapped()
@@ -86,30 +107,60 @@ module.exports = (passport) => {
       models.User.where({
         email: req.body.email
       }, (modelErr, users) => {
+        // CASE: database read error
         if (modelErr) return res.status(500).json({ error: modelErr });
+        
+        // CASE: no users with submitted primary email
         if (users.length === 0) {
           return res.status(400).json({ error: { message: 'Error logging in.' } });
         }
         
         // check password of user
-        var user = users[0];
-        if (user.password !== req.body.password) {
-          return res.status(400).json({ error: { message: 'Error logging in.' } });
-        }
+        // FIXME: Load from (users.length - 1) bc Email objects are also fetched
+        var user = users[users.length - 1];
+        bcrypt
+          .compare(req.body.password, user.password)
+          .then(theSame => {
+            if (!theSame) {
+              // CASE: incorrect password
+              return res.status(400).json({
+                error: { message: 'Error logging in.' }
+              });
+            }
+            return req.login(user, loginErr => {
+              // CASE: passport login error
+              if (loginErr) return res.status(500).json({ error: loginErr });
+              
+              const payload = {
+                id : user.id
+              };
+              const token = jwt.sign(payload, process.env.SECRET);
+              return res.json({ user, token });
+            });
+          })
+          .catch(err => {
+            // CASE: bcrypt comparison error
+            console.error(err);
+            return res.status(500).json({
+              error: { message: 'Error comparing passwords.' }
+            });
+          });
         
-        return req.login(user, loginErr => {
-          if (loginErr) return res.status(500).json({ error: loginErr });
-          
-          const payload = {
-            id : user.id
-          };
-          const token = jwt.sign(payload, process.env.SECRET);
-          return res.json({ user, token });
-        });
       });
       
     });
     
+  });
+  
+  /*
+  GET `/auth/loggedIn`
+  Checks whether a user is logged in or not.
+  
+  @returns    Object
+    .loggedIn Whether or not the user is logged in
+  */
+  router.get('/loggedIn', (req, res) => {
+    return res.json({ loggedIn: !!req.user });
   });
   
   /*
@@ -126,14 +177,27 @@ module.exports = (passport) => {
   });
   
   /*
-  GET `/auth/loggedIn`
-  Checks whether a user is logged in or not.
-  
-  @returns    Object
-    .loggedIn Whether or not the user is logged in
+  TODO: POST `/auth/email`
+  Creates a new email for a user.
   */
-  router.get('/loggedIn', (req, res) => {
-    return res.json({ loggedIn: !!req.user });
+  router.post('/email', passport.authenticate('jwt', { session : false }), (req, res) => {
+    return res.json({ ok: true });
+  });
+  
+  /*
+  TODO: PUT `/auth/email`
+  Switches a user's primary email from one to another.
+  */
+  router.put('/email', passport.authenticate('jwt', { session : false }), (req, res) => {
+    return res.json({ ok: true });
+  });
+  
+  /*
+  TODO: PUT `/auth/password`
+  Updates a user's password.
+  */
+  router.post('/password', passport.authenticate('jwt', { session : false }), (req, res) => {
+    return res.json({ ok: true });
   });
   
   return router;
