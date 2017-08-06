@@ -16,4 +16,7 @@ User.schema = {
   password    : { type: String, required: true }
 }
 
+User.compose(require('./email.js'), 'emails', 'has_email');
+User.compose(require('./profile.js'), 'profile', 'has_profile');
+
 module.exports = User;
