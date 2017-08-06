@@ -50,11 +50,11 @@ passport.use(new JwtStrategy(opts, function(jwt_payload, done) {
   });
 }));
 
-// passport.serializeUser((user, done) => done(null, user.id));
-// 
-// passport.deserializeUser((id, done) => {
-//   models.User.read(id, (err, user) => done(err, user));
-// });
+passport.serializeUser((user, done) => done(null, user.id));
+
+passport.deserializeUser((id, done) => {
+  models.User.read(id, (err, user) => done(err, user));
+});
 
 app.use(passport.initialize());
 
