@@ -1,10 +1,21 @@
-var express = require('express');
-var path = require('path');
-var logger = require('morgan');
-var cookieParser = require('cookie-parser');
-var bodyParser = require('body-parser');
+const path = require('path');
+const http = require('http');
 
-var app = express();
+const express = require('express');
+
+const logger = require('morgan');
+
+const bodyParser = require('body-parser');
+const expressValidator = require('express-validator');
+
+const passport = require('passport');
+const jwt = require('jsonwebtoken');
+const JwtStrategy = require('passport-jwt').Strategy;
+const ExtractJwt = require('passport-jwt').ExtractJwt;
+
+const models = require('./models');
+
+const app = express();
 
 //////////////////////////////////// CONFIG ////////////////////////////////////
 
@@ -18,21 +29,54 @@ app.set('view engine', 'hbs');
 // REQUSET PARSING
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(cookieParser());
+app.use(expressValidator());
 
 // STATIC FILES
 app.use(express.static(path.join(__dirname, 'public')));
 
+// PASSPORT AUTHENTICATION
+
+// jwts
+const opts = {
+  jwtFromRequest : ExtractJwt.fromAuthHeader(),
+  secretOrKey : process.env.SECRET
+}
+
+passport.use(new JwtStrategy(opts, function(jwt_payload, done) {
+  models.User.read(jwt_payload.id, (err, user) => {
+    if (err || !user) return done(err, false);
+    if (user) return done(null, user);
+    return done(null, false);
+  });
+}));
+
+// passport.serializeUser((user, done) => done(null, user.id));
+// 
+// passport.deserializeUser((id, done) => {
+//   models.User.read(id, (err, user) => done(err, user));
+// });
+
+app.use(passport.initialize());
+
 //////////////////////////////////// ROUTES ////////////////////////////////////
 
-var routes = require('./routes/index');
-var users = require('./routes/users');
+// app.use((req, res, next) => {
+//   if (req.get('Authorization')) console.log("Authorization: ", req.get('Authorization'));
+//   next();
+// })
 
-app.use('/', routes);
-app.use('/users', users);
+app.use('/v1/auth', require('./routes/auth')(passport));
+
+// auth wall
+app.use(passport.authenticate('jwt', { session: false }));
+
+app.get('/v1/secret', (req, res) => res.json({ ok: 'ayyy' }));
+
+// app.use('/', require('./routes/index'));
+// app.use('/users', require('./routes/users'));
 
 // catch 404 and forward to error handler
-app.use(function(req, res, next) {
+app.use((req, res, next) => {
   var err = new Error('Not Found');
   err.status = 404;
   next(err);
@@ -42,21 +86,13 @@ app.use(function(req, res, next) {
 if (app.get('env') === 'development') {
   // development
   app.use((err, req, res, next) => {
-    res.json({
-      ok: false,
-      message: err.message,
-      error: err
-    }, err.status || 500);
+    res.status(err.status || 500).json({ error: err });
+  });
+} else {
+  // production
+  app.use((err, req, res, next) => {
+    res.status(err.status || 500).json({ error: {} });
   });
 }
 
-// production
-app.use((err, req, res, next) => {
-  res.json({
-    ok: false,
-    message: err.message,
-    error: {}
-  }, err.status || 500);
-});
-
-module.exports = app;
+module.exports = { app, http };
