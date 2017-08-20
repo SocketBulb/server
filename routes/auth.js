@@ -45,7 +45,7 @@ module.exports = (passport) => {
         
         // create user if all is aight
         models.User.save({
-          password: bcrypt.hashSync(req.body.password, 8),
+          password: bcrypt.hashSync(req.body.password, 16),
           email: req.body.email,
           emails : [{
             email: req.body.email,
