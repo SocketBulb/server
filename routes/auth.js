@@ -30,7 +30,7 @@ module.exports = (passport) => {
       
       if (!result.isEmpty()) {
         return res.status(400).json({
-          error: errors.useFirstErrorOnly().mapped()
+          error: result.useFirstErrorOnly().mapped()
         });
       }
       
@@ -181,7 +181,21 @@ module.exports = (passport) => {
   Creates a new email for a user.
   */
   router.post('/email', passport.authenticate('jwt', { session : false }), (req, res) => {
-    return res.json({ ok: true });
+    req.checkBody('email').notEmpty().isEmail();
+    
+    req.getValidationResult().then(result => {
+      var errors = result.array();
+      
+      if (errors.length > 0) {
+        return res.status(400).json({
+          error : {
+            message : result.useFirstErrorOnly().mapped()
+          }
+        })
+      }
+      
+      return res.json({ ok: true });
+    })
   });
   
   /*
